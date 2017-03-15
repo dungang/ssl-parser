@@ -1,0 +1,22 @@
+{
+  "name": "dungang/ssl-parser",
+  "description": "SSL Parser Lib for PHP ",
+  "license": "MIT",
+  "minimum-stability": "dev",
+  "authors": [
+    {
+      "name": "dun gang",
+      "email": "dungang@126.com",
+      "homepage": "https://github.com/dungang",
+      "role": "Creator"
+    }
+  ],
+  "require": {
+    "php": ">=5.4.0"
+  },
+  "autoload": {
+    "psr-4": {
+      "dungang\\sslparser\\": "src"
+    }
+  }
+}
