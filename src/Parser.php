@@ -124,7 +124,7 @@ class Parser
         $this->uuid = $this->genUuid();
 
         if (function_exists('shell_exec')) {
-            $this->canExeShell = true;
+            $this->canExeShell = $this->checkOpensslInstalled();
         }
 
         if(empty($this->rootCAFile)) {
@@ -156,9 +156,9 @@ class Parser
             $chainKey = sprintf('%s',$chainKey) ;
             if ($idx == 0) {
                 $data['connection'] = $this->getConnectionMetaInfo($this->ip,$certificateChains);
-                $data['chain'][$idx] = $this->parseCertificate($certificateChains, $idx, $chainKey, $this->host, true, $this->port, false);
+                $data['chain'][$idx] = $this->parseCertificateByShell($certificateChains, $idx, $chainKey, $this->host, true, $this->port, false);
             } else {
-                $data['chain'][$idx] = $this->parseCertificate($certificateChains,$idx, $chainKey, null, false, $this->port, false);
+                $data['chain'][$idx] = $this->parseCertificateByShell($certificateChains,$idx, $chainKey, null, false, $this->port, false);
             }
         }
 
@@ -177,6 +177,16 @@ class Parser
 //            }
 //        }
         return $data;
+    }
+
+    public function checkOpensslInstalled()
+    {
+        $output = $error = 0;
+        exec('openssl version -noout',$output,$error);
+        if ($error == 1) {
+            return false;
+        }
+        return true;
     }
 
     public function parseChains($chains)
@@ -203,15 +213,15 @@ class Parser
         }
         return [
             'checkedHost'=> $this->host,
-            'validateChain'=> $this->validateCertificatePemChainsByShell($pems),
+            //'validateChain'=> $this->validateCertificatePemChainsByShell($pems),
             'constructChain'=> $this->chainConstruction($sources[0],$pems[0]),
             'validateHostIp'=> $this->validateHostIp($ip),
             'connectionCompression'=>$this->connectionCompressionByShell($ip),
-            'validateSupportedProtocols'=>$this->testSslConnectionProtocolsByShell($ip),
+            //'validateSupportedProtocols'=>$this->testSslConnectionProtocolsByShell($ip),
             'supportedCipherSuites'=>$this->getSupportedCipherSuites($ip),
-            'tlsFallbackSCSV'=>$this->testTLSFallbackSCSVByShell($ip),
+            //'tlsFallbackSCSV'=>$this->testTLSFallbackSCSVByShell($ip),
             'headers'=>$this->parserHeaders($ip),
-            'hearbeat'=>$this->testHeartbeatByShell(),
+            //'hearbeat'=>$this->testHeartbeatByShell(),
         ];
     }
 
@@ -336,6 +346,9 @@ class Parser
     }
 
     public function connectionCompressionByShell($ip) {
+        if (!$this->canExeShell) {
+            return null;
+        }
         // OpenSSL 1.1.0 has ipv6 support: https://rt.openssl.org/Ticket/Display.html?id=1832
         //if (filter_var(preg_replace('/[^A-Za-z0-9\.\:_-]/', '', $ip), FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
         // ipv6 openssl tools are broken. (https://rt.openssl.org/Ticket/Display.html?id=1365&user=guest&pass=guest)
@@ -361,6 +374,9 @@ class Parser
     }
 
     public function testSslV2ByShell($ip) {
+        if (!$this->canExeShell) {
+            return null;
+        }
         $exitStatus = 0;
         $output = 0;
         exec('echo | timeout ' . $this->timeout
@@ -559,6 +575,9 @@ class Parser
 
     public function testTLSFallbackSCSVByShell($ip)
     {
+        if (!$this->canExeShell) {
+            return null;
+        }
         // OpenSSL 1.1.0 has ipv6 support: https://rt.openssl.org/Ticket/Display.html?id=1832
         // if (filter_var(preg_replace('/[^A-Za-z0-9\.\:_-]/', '', $ip), FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
         //     // ipv6 openssl tools are broken. (https://rt.openssl.org/Ticket/Display.html?id=1365&user=guest&pass=guest)
@@ -658,6 +677,9 @@ class Parser
 
     public function staplingOCSPByShell($ip)
     {
+        if (!$this->canExeShell) {
+            return null;
+        }
         // OpenSSL 1.1.0 has ipv6 support: https://rt.openssl.org/Ticket/Display.html?id=1832
         // if (filter_var(preg_replace('/[^A-Za-z0-9\.\:_-]/', '', $ip), FILTER_VALIDATE_IP, FILTER_FLAG_IPV6)) {
         //       // ipv6 openssl tools are broken. (https://rt.openssl.org/Ticket/Display.html?id=1365&user=guest&pass=guest)
@@ -707,7 +729,10 @@ class Parser
         return $result;
     }
     
-    public function testHeartBleedBy($ip, $port) {
+    public function pythonTestHeartBleedByShell($ip, $port) {
+        if (!$this->canExeShell) {
+            return null;
+        }
         //this uses an external python2 check to test for the heartblead vulnerability
         $exitStatus = 0;
         $output = 0;
@@ -741,6 +766,9 @@ class Parser
     }
 
     public function testHeartbeatByShell() {
+        if (!$this->canExeShell) {
+            return null;
+        }
         //this tests for the heartbeat protocol extension
         $result = false;
         $cmd = 'echo | timeout %s openssl s_client -connect $s:%d -servername %s -tlsextdebug 2>&1 </dev/null | awk -F\" \'/server extension/ {print $2}\'';
@@ -773,6 +801,9 @@ class Parser
 
     public function validateCertificatePemChainsByShell($pemChains)
     {
+        if (!$this->canExeShell) {
+            return null;
+        }
         $result = ['status'=>'failed'];
         $file = $this->tmpPath .DIRECTORY_SEPARATOR . 'peer-certificate-chains-' . $this->uuid. '.pem';
         file_put_contents($file,trim(implode("\n", array_reverse($pemChains))));
@@ -841,7 +872,8 @@ class Parser
         $issuer = $this->getCertificateIssuerCrt($firstChainSource);
         if ($issuer) {
             $result['certs'][] = $issuer;
-            $result = $this->getCertificateIssuerChain($issuer,$number,$result);
+            $issuerSource = openssl_x509_parse($issuer);
+            $result = $this->getCertificateIssuerChain($issuerSource,$number,$result);
             return $result;
         } else {
             return $result;
@@ -857,30 +889,15 @@ class Parser
         $hashFile = $crtHashDir . $crtCheckHash . ".pem";
         $crtData = null;
         if (!file_exists($hashFile)) {
-            $issuerUrls = $this->getCertificateIssuerUrls($chainSource);
-            if(is_array($issuerUrls)) {
-                foreach($issuerUrls as $key => $url) {
+            $uris = $this->parseAuthorityInfoAccess($chainSource);
+            if(is_array($uris)) {
+                if (isset($uris['CA Issuers'])) {
+                    $url = trim($uris['CA Issuers']);
                     $crtHash = hash("sha256",$url);
                     $crtHashDerFile = $crtHashDir . DIRECTORY_SEPARATOR . $crtHash . ".der";
-                    if (!file_exists($crtHashDerFile) or time()-filemtime($crtHashDerFile) > 5 * 84600) {
-                        if (0 === strpos($url,"http")) {
-                            $fp = fopen ($crtHashDerFile, 'wb');
-                            $ch = curl_init(($url));
-                            curl_setopt($ch, CURLOPT_TIMEOUT, $this->timeout);
-                            curl_setopt($ch, CURLOPT_FILE, $fp);
-                            curl_setopt($ch, CURLOPT_FAILONERROR, true);
-                            curl_setopt($ch, CURLOPT_FRESH_CONNECT, true);
-                            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-                            curl_setopt($ch, CURLOPT_SSL_VERIFYHOST, false);
-                            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
-                            curl_setopt($ch, CURLOPT_MAXREDIRS, 5);
-                            $exe = curl_exec($ch);
-                            curl_close($ch);
-                            if($exe === false) {
-                                continue;
-                            }
-                            $this->checkCertificateFileSize($crtHashDerFile);
-                        }
+                    if ($this->fileExpired($crtHashDerFile)) {
+                        $this->saveRemoteFile($url,$crtHashDerFile);
+                        $this->checkCertificateFileSize($crtHashDerFile);
                     }
                     if (file_exists($crtHashDerFile)) {
                         //we have a a der file, we need to convert it to pem and return it.
@@ -896,7 +913,7 @@ class Parser
                         $crtHash = hash("sha256",$this->formatSubject($crtSource['subject']));
                         $crtHashFile = $crtHashDir . DIRECTORY_SEPARATOR . $crtHash . ".pem";
                         if ($this->fileExpired($crtHashFile)) {
-                            file_put_contents($crtHashFile,$crtPem);
+                            file_put_contents($crtHashFile,trim($crtPem));
                         }
                         $this->checkCertificateFileSize($crtHashFile);
                         return $this->constructChain($crtSource,$crtPem);
@@ -915,26 +932,20 @@ class Parser
         return null;
     }
 
-    public function getCertificateIssuerUrls($source)
+    public function parseAuthorityInfoAccess($source)
     {
-        $result = [];
-        if ($source['extensions']['authorityInfoAccess']) {
-            $authorityInfoAccess = explode("\n",$source['extensions']['authorityInfoAccess']);
-            foreach($authorityInfoAccess as $info) {
-                $crtUris = explode("CA Issuers - URI:",$info);
-                foreach($crtUris as $key => $uris){
-                    foreach(explode("\n",$uris) as $uri) {
-                        if ($uri) {
-                            if (strpos(strtolower($uri),'ocsp') === false) {
-                                $result[] = $uri;
-                            }
-                        }
+        $uris = [];
+        if (isset($source['extensions']['authorityInfoAccess'])) {
+            $access = $source['extensions']['authorityInfoAccess'];
+            if (is_string($access) && preg_match_all('/(.*?)\s+\-\s+URI\:(.*)/m',$access,$matches)) {
+                if (count($matches) == 3) {
+                    foreach ($matches[1] as $key => $word) {
+                        $uris[$word] = $matches[2][$key];
                     }
                 }
             }
         }
-        return $result;
-
+        return $uris;
     }
 
     public function getStreamData()
@@ -1043,6 +1054,9 @@ class Parser
     }
 
     public function getSansFromCsrByShell($csr) {
+        if (!$this->canExeShell) {
+            return null;
+        }
         //openssl_csr_get_subject doesn't support SAN names.
         $csrDir = $this->tmpPath . DIRECTORY_SEPARATOR . 'csr';
         $this->mkdir($csrDir);
@@ -1084,6 +1098,9 @@ class Parser
     }
 
     public function verifyCertIssuerBySubjectHashWithShell($chain, $nextChain) {
+        if (!$this->canExeShell) {
+            return null;
+        }
         //checks if the issuer of given cert is the same as the subject of the other cert, thus validating if cert 1 was signed by cert 2.
         $subjectDir = $this->tmpPath . DIRECTORY_SEPARATOR . "subject";
         $this->mkdir($subjectDir);
@@ -1130,6 +1147,9 @@ class Parser
 
     public function crlVerifyByShell($source)
     {
+        if (!$this->canExeShell) {
+            return null;
+        }
         $crlDir = $this->tmpPath . DIRECTORY_SEPARATOR . 'crl';
         $this->mkdir($crlDir);
         $outs = ['Serial Number'=>strtoupper($this->bcdechex($source['serialNumber']))];
@@ -1251,6 +1271,9 @@ class Parser
 
     public function parseOCSPByShell($chains,$start=0)
     {
+        if (!$this->canExeShell) {
+            return null;
+        }
         $result = [];
         $ocspDir = $this->tmpPath . DIRECTORY_SEPARATOR . 'oscp';
         $this->mkdir($ocspDir);
@@ -1258,21 +1281,15 @@ class Parser
         // ocsp
         if (isset($source['extensions']['authorityInfoAccess'])) {
 
-            if (preg_match_all('/(.*?)\s+\-\s+URI\:(.*)/m',$source['extensions']['authorityInfoAccess'],$matches))
+            if ($uris = $this->parseAuthorityInfoAccess($source))
             {
-                $ocspUris = [];
-                if (count($matches)==3) {
-                    foreach($matches[1] as $key=>$word) {
-                        $ocspUris[$word] = $matches[2][$key];
-                    }
-                }
-                if (empty($ocspUris['OCSP'])) {
+                if (empty($uris['OCSP'])) {
                     $result["errorMessage"] = "No OCSP URI found in certificate";
                 } else {
                     $length = count($chains);
                     $endChain = $chains[$length-1];
                     if ($caFile = $this->getRootCA($endChain)) {
-                        $uri = $ocspUris['OCSP'];
+                        $uri = $uris['OCSP'];
                         $chainsPem = [];
                         $interPem = [];
                         $sitePem = '';
@@ -1360,8 +1377,11 @@ class Parser
         return $result;
     }
 
-    public function parseCertificate($chains, $startKey=0,$nextKey=null,$host=null, $validate_hostname=false, $port="443", $include_chain=null) {
+    public function parseCertificateByShell($chains, $startKey=0,$nextKey=null,$host=null, $validate_hostname=false, $port="443", $include_chain=null) {
 
+        if (!$this->canExeShell) {
+            return null;
+        }
         $today = date("Y-m-d");
         $chain = $chains[$startKey];
         $pem = $chain['pem'];
@@ -1600,12 +1620,15 @@ class Parser
         }
         if(isset($keyDetails['key'])) {
             $result["key"]["publicKeyPem"] = $keyDetails['key'];
-            $result["key"]["spki_hash"] = $this->spkiHash($pem);
+            $result["key"]["spki_hash"] = $this->spkiHashByShell($pem);
         }
         return $result;
     }
 
-    public function spkiHash($pem) {
+    public function spkiHashByShell($pem) {
+        if (!$this->canExeShell) {
+            return null;
+        }
         $spkiDir = $this->tmpPath . DIRECTORY_SEPARATOR . 'spki';
         $this->mkdir($spkiDir);
         $pemFile = $spkiDir . DIRECTORY_SEPARATOR . $this->uuid . '.cert_client.pem';
@@ -1638,6 +1661,9 @@ class Parser
     }
 
     public function parseCsrByShell($csr) {
+        if (!$this->canExeShell) {
+            return null;
+        }
         //if csr or cert is pasted in form tis function parses the csr or it send the cert to cert_parse.
         $result = array();
         if (strpos($csr, "BEGIN CERTIFICATE REQUEST") !== false) {
