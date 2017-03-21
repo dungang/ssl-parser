@@ -117,6 +117,7 @@ class Parser
     protected $supportedCipherSuitesCount = 0;
 
     public function  __construct($host,$ip,$port=443) {
+
         $this->host = $host;
         $this->port = $port;
         $this->ip = $ip;
@@ -140,6 +141,9 @@ class Parser
         }
 
     }
+
+
+
 
     public function parser() {
 
@@ -189,6 +193,19 @@ class Parser
         return true;
     }
 
+    /**
+     * @param $resource resource chain resource
+     * @param $fileName string resource save as fileName
+     */
+    public function saveResource($resource,$fileName) {
+        $handle = fopen($fileName, "wb");
+        while (!feof($resource)) {
+            $contents = fread($resource, 8192);
+            fwrite($handle,$contents);
+        }
+        fclose($handle);
+    }
+
     public function parseChains($chains)
     {
         $chainCertificates = [];
@@ -213,7 +230,7 @@ class Parser
         }
         return [
             'checkedHost'=> $this->host,
-            //'validateChain'=> $this->validateCertificatePemChainsByShell($pems),
+            'validateChain'=> $this->validateCertificatePemChainsByShell($pems),
             'constructChain'=> $this->chainConstruction($sources[0],$pems[0]),
             'validateHostIp'=> $this->validateHostIp($ip),
             'connectionCompression'=>$this->connectionCompressionByShell($ip),
@@ -849,7 +866,7 @@ class Parser
         ];
     }
 
-    public function getCertificateIssuerChain($firstChainSource,$number=1,$result=null)
+    public function getCertificateIssuerChain($source,$number=1,$result=null)
     {
         if ($result['complete'] == 'yes') {
             return $result;
@@ -863,13 +880,16 @@ class Parser
         if (!is_array($result)) {
             $result = ['certs' => array(), 'complete' => 'false'];
         }
-        $fullSubject = $this->formatSubject($firstChainSource['subject']);
-        $fullIssuer = $this->formatSubject($firstChainSource['issuer']);
-        if ($fullSubject == $fullIssuer) {
-            $result['complete'] = "yes";
+        if (isset($source['extensions']['basicConstraints'])) {
+            if (preg_match('/CA\:TRUE/',$source['extensions']['basicConstraints'])) {
+                $result['complete'] = "yes";
+                return $result;
+            }
+        } else {
+            $result['complete'] = 'error';
             return $result;
         }
-        $issuer = $this->getCertificateIssuerCrt($firstChainSource);
+        $issuer = $this->getCertificateIssuerCrt($source);
         if ($issuer) {
             $result['certs'][] = $issuer;
             $issuerSource = openssl_x509_parse($issuer);
@@ -1028,7 +1048,7 @@ class Parser
     protected function mkdir($dir)
     {
         if (!is_dir($dir)) {
-            mkdir($dir,true);
+            mkdir($dir,0777,true);
         }
     }
 
