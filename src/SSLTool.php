@@ -557,7 +557,7 @@ class SSLTool
         $rst = curl_exec($ch);
         curl_close($ch);
         if ($rst) {
-            file_put_contents($file,$rst);
+            file_put_contents($file,$rst,LOCK_EX);
             return true;
         }
         return false;
